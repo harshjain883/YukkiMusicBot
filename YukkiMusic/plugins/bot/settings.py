@@ -7,16 +7,24 @@
 #
 # All rights reserved.
 
+import time
 from pyrogram import filters
 from pyrogram.errors import MessageNotModified
-from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
-                            InlineKeyboardMarkup, Message)
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaVideo,
+    Message,
+)
 
 from config import (BANNED_USERS, CLEANMODE_DELETE_MINS,
-                    MUSIC_BOT_NAME, OWNER_ID)
+                    BOT_NAME, OWNER_ID, START_IMG_URL)
 from strings import get_command
-from YukkiMusic import app
-from YukkiMusic.utils.database import (add_nonadmin_chat,
+from FallenX import app
+from FallenX.misc import _boot_
+from FallenX.utils.database import (add_nonadmin_chat,
                                        cleanmode_off, cleanmode_on,
                                        commanddelete_off,
                                        commanddelete_on,
@@ -27,19 +35,19 @@ from YukkiMusic.utils.database import (add_nonadmin_chat,
                                        is_cleanmode_on,
                                        is_commanddelete_on,
                                        is_nonadmin_chat,
-                                       is_suggestion,
                                        remove_nonadmin_chat,
                                        save_audio_bitrate,
                                        save_video_bitrate,
-                                       set_playmode, set_playtype,
-                                       suggestion_off, suggestion_on)
-from YukkiMusic.utils.decorators.admins import ActualAdminCB
-from YukkiMusic.utils.decorators.language import language, languageCB
-from YukkiMusic.utils.inline.settings import (
+                                       set_playmode, set_playtype)
+from FallenX.utils.decorators.admins import ActualAdminCB
+from FallenX.utils.decorators.language import language, languageCB
+from FallenX.utils.inline.settings import (
     audio_quality_markup, auth_users_markup,
     cleanmode_settings_markup, playmode_users_markup, setting_markup,
     video_quality_markup)
-from YukkiMusic.utils.inline.start import private_panel
+from FallenX.utils.formatters import get_readable_time
+from FallenX.utils.inline.start import private_panel
+from FallenX.utils.database import get_served_users, get_served_chats
 
 ### Command
 SETTINGS_COMMAND = get_command("SETTINGS_COMMAND")
@@ -57,6 +65,17 @@ async def settings_mar(client, message: Message, _):
     await message.reply_text(
         _["setting_1"].format(message.chat.title, message.chat.id),
         reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+@app.on_callback_query(filters.regex("gib_source") & ~BANNED_USERS)
+@languageCB
+async def gib_repo(client, CallbackQuery, _):
+    await CallbackQuery.edit_message_media(
+        InputMediaVideo("https://te.legra.ph/file/e6471d19bd04a5095436a.mp4"),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text="ʙᴀᴄᴋ", callback_data=f"settingsback_helper")]]
+        ),
     )
 
 
@@ -97,8 +116,13 @@ async def settings_back_markup(
         except:
             OWNER = None
         buttons = private_panel(_, app.username, OWNER)
-        return await CallbackQuery.edit_message_text(
-            _["start_2"].format(MUSIC_BOT_NAME),
+        return await CallbackQuery.edit_message_media(
+            InputMediaPhoto(
+                media=START_IMG_URL,
+                caption=_["start_2"].format(
+                    CallbackQuery.from_user.first_name, BOT_NAME
+                ),
+            ),
             reply_markup=InlineKeyboardMarkup(buttons),
         )
     else:
@@ -134,7 +158,7 @@ async def gen_buttons_vid(_, aud):
 
 @app.on_callback_query(
     filters.regex(
-        pattern=r"^(SEARCHANSWER|PLAYMODEANSWER|PLAYTYPEANSWER|AUTHANSWER|CMANSWER|COMMANDANSWER|SUGGANSWER|CM|AQ|VQ|PM|AU)$"
+        pattern=r"^(SEARCHANSWER|PLAYMODEANSWER|PLAYTYPEANSWER|AUTHANSWER|CMANSWER|COMMANDANSWER|CM|AQ|VQ|PM|AU)$"
     )
     & ~BANNED_USERS
 )
@@ -184,13 +208,6 @@ async def without_Admin_rights(client, CallbackQuery, _):
             )
         except:
             return
-    if command == "SUGGANSWER":
-        try:
-            return await CallbackQuery.answer(
-                _["setting_16"], show_alert=True
-            )
-        except:
-            return
     if command == "CM":
         try:
             await CallbackQuery.answer(_["set_cb_5"], show_alert=True)
@@ -202,11 +219,8 @@ async def without_Admin_rights(client, CallbackQuery, _):
             cle = True
         if await is_commanddelete_on(CallbackQuery.message.chat.id):
             sta = True
-        sug = None
-        if await is_suggestion(CallbackQuery.message.chat.id):
-            sug = True
         buttons = cleanmode_settings_markup(
-            _, status=cle, dels=sta, sug=sug
+            _, status=cle, dels=sta
         )
     if command == "AQ":
         try:
@@ -499,7 +513,7 @@ async def authusers_mar(client, CallbackQuery, _):
 
 @app.on_callback_query(
     filters.regex(
-        pattern=r"^(CLEANMODE|COMMANDELMODE|SUGGESTIONCHANGE)$"
+        pattern=r"^(CLEANMODE|COMMANDELMODE)$"
     )
     & ~BANNED_USERS
 )
@@ -514,9 +528,6 @@ async def cleanmode_mark(client, CallbackQuery, _):
         sta = None
         if await is_commanddelete_on(CallbackQuery.message.chat.id):
             sta = True
-        sug = None
-        if await is_suggestion(CallbackQuery.message.chat.id):
-            sug = True
         cle = None
         if await is_cleanmode_on(CallbackQuery.message.chat.id):
             await cleanmode_off(CallbackQuery.message.chat.id)
@@ -524,7 +535,7 @@ async def cleanmode_mark(client, CallbackQuery, _):
             await cleanmode_on(CallbackQuery.message.chat.id)
             cle = True
         buttons = cleanmode_settings_markup(
-            _, status=cle, dels=sta, sug=sug
+            _, status=cle, dels=sta
         )
         return await CallbackQuery.edit_message_reply_markup(
             reply_markup=InlineKeyboardMarkup(buttons)
@@ -534,32 +545,13 @@ async def cleanmode_mark(client, CallbackQuery, _):
         sta = None
         if await is_cleanmode_on(CallbackQuery.message.chat.id):
             cle = True
-        sug = None
-        if await is_suggestion(CallbackQuery.message.chat.id):
-            sug = True
         if await is_commanddelete_on(CallbackQuery.message.chat.id):
             await commanddelete_off(CallbackQuery.message.chat.id)
         else:
             await commanddelete_on(CallbackQuery.message.chat.id)
             sta = True
         buttons = cleanmode_settings_markup(
-            _, status=cle, dels=sta, sug=sug
-        )
-    if command == "SUGGESTIONCHANGE":
-        cle = None
-        sta = None
-        if await is_cleanmode_on(CallbackQuery.message.chat.id):
-            cle = True
-        if await is_commanddelete_on(CallbackQuery.message.chat.id):
-            sta = True
-        if await is_suggestion(CallbackQuery.message.chat.id):
-            await suggestion_off(CallbackQuery.message.chat.id)
-            sug = False
-        else:
-            await suggestion_on(CallbackQuery.message.chat.id)
-            sug = True
-        buttons = cleanmode_settings_markup(
-            _, status=cle, dels=sta, sug=sug
+            _, status=cle, dels=sta
         )
     try:
         return await CallbackQuery.edit_message_reply_markup(
